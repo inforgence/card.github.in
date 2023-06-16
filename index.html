@@ -1,0 +1,401 @@
+require('dotenv').config();
+const { Configuration, OpenAIApi } = require('openai');
+const xlsx = require('xlsx');
+const fs = require('fs').promises;
+const { Builder, By, Key, until } = require('selenium-webdriver');
+require('chromedriver');
+const puppeteer = require('puppeteer');
+
+async function main() {
+  const result = await callChatGPT("건강에 대한 명언 카드뉴스 10개 만들어줘");
+  // const result = await callChatGPT("구글에서 6월 여행지 검색하고 요약해줘");
+    // const result = await callChatGPT("네이버에서 6월 여행지 검색하고 요약해줘");
+
+    // const array = JSON.parse(result.content);
+    console.log(result);
+
+    if(result.function_call) {
+      const { function_call } = result;
+      const test = eval(`${function_call.name}(${function_call.arguments})`); // 함수 실행
+      // console.log(test);
+      // const test2 = await naver_search(function_call.arguments.keyword);
+
+    }
+
+}
+
+
+async function create_cardnews(arguments) {
+  const { quotes } = arguments;
+  const browser = await puppeteer.launch();
+  const page = await browser.newPage();
+
+  // HTML 템플릿
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Quote Card</title>
+      <style>
+        @import url('https://fonts.googleapis.com/css2?family=Nanum+Myeongjo&display=swap');
+
+        body {
+          background: linear-gradient(45deg, #FF9A8B, #FF6A88);
+          margin: 0;
+          padding: 20px;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          height: 100vh;
+          font-family: 'Nanum Myeongjo', serif;
+        }
+
+        .quote-card {
+          background-color: #FFF5F7;
+          padding: 20px;
+          border-radius: 10px;
+          margin-bottom: 20px;
+          text-align: center;
+          max-width: 400px;
+          box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .quote-card .speaker {
+          font-weight: bold;
+          font-size: 24px;
+          margin-bottom: 10px;
+          color: #FF6A88;
+        }
+
+        .quote-card .quote {
+          font-size: 20px;
+          line-height: 1.5;
+          color: #424242;
+          margin-bottom: 20px;
+        }
+
+        .quote-card .year {
+          font-size: 16px;
+          color: #757575;
+          font-style: italic;
+        }
+      </style>
+    </head>
+    <body>
+      [CARD]
+    </body>
+    </html>
+  `;
+
+  for (let i = 0; i < quotes.length; i++) {
+    const quote = quotes[i];
+    const { speaker, quote: quoteText, birthYear, deathYear } = quote;
+
+    // 명언 정보를 HTML 카드로 추가
+    const cardHtml = `
+      <div class="quote-card">
+        <div class="speaker">${speaker}</div>
+        <div class="quote">${quoteText}</div>
+        <div class="year">${birthYear} - ${deathYear}</div>
+      </div>
+    `;
+
+    // 페이지에 HTML 콘텐츠 로드
+    await page.setContent(html.replace('[CARD]', cardHtml));
+
+    // 스크린샷 찍기
+    await page.screenshot({ path: `${speaker}_quote_card.png` });
+  }
+
+  await browser.close();
+}
+
+const send_email = async (arguments) => {
+  const { to, content } = arguments;
+
+  console.log(`${to}에게 ${content}라는 내용으로 메일보내기를 시도합니다.`);
+
+  // 송금 구현부
+};
+
+const send_money = async (arguments) => {
+  const { to, amount } = arguments;
+
+  console.log(`${to}에게 ${amount}를 보내기를 시도합니다.`);
+
+  // 송금 구현부
+};
+
+const naver_search = async (arguments) => {
+  // console.log(arguments);
+  const { keyword } = arguments;
+  console.log(keyword);
+
+  const driver = await new Builder().forBrowser('chrome').build();
+
+  try {
+    // 네이버 사이트 열기
+    await driver.get('https://www.naver.com');
+
+    // 검색어 입력
+    const searchBox = await driver.wait(until.elementLocated(By.name('query')));
+    await searchBox.sendKeys(keyword, Key.RETURN);
+
+    // 페이지 로딩 대기
+    await driver.wait(until.titleContains(keyword));
+
+    // 페이지 내 텍스트 추출
+    const bodyElement = await driver.findElement(By.tagName('body'));
+    const text = await bodyElement.getText();
+    return {result : "네이버에서 검색중.. 검색결과가 없습니다."};
+
+    return text;
+  } finally {
+    // WebDriver 종료
+    // await driver.quit();
+  }
+
+  
+
+};
+const google_search = async (arguments) => {
+  const { keyword } = arguments;
+  console.log(keyword);
+  const driver = await new Builder().forBrowser('chrome').build();
+
+  try {
+    // Google 사이트 열기
+    await driver.get('https://www.google.com');
+
+    // 검색어 입력
+    const searchBox = await driver.wait(until.elementLocated(By.name('q')));
+    await searchBox.sendKeys(keyword, Key.RETURN);
+
+    // 페이지 로딩 대기
+    await driver.wait(until.titleContains(keyword));
+
+    // 페이지 내 텍스트 추출
+    const bodyElement = await driver.findElement(By.tagName('body'));
+    const text = await bodyElement.getText();
+
+    return text;
+  } finally {
+    // WebDriver 종료
+    // await driver.quit();
+  }
+
+  return {result : "구글에서 검색중.. 검색결과가 없습니다."};
+};
+
+async function callChatGPT(prompt) {
+  const configuration = new Configuration({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+
+  try {
+    const openai = new OpenAIApi(configuration);
+    const response = await openai.createChatCompletion({
+      model: "gpt-3.5-turbo-0613",
+      messages: [{role: "user", content: prompt}],
+      functions: [
+        {
+          "name": "create_cardnews",
+          "description": "Create a card news from a list of 100 quotes.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "quotes": {
+                "type": "array",
+                "description": "List of 100 quotes",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "speaker": {
+                      "type": "string",
+                      "description": "The speaker of the quote"
+                    },
+                    "quote": {
+                      "type": "string",
+                      "description": "The content of the quote"
+                    },
+                    "birthYear": {
+                      "type": "integer",
+                      "description": "The birth year of the speaker"
+                    },
+                    "deathYear": {
+                      "type": "integer",
+                      "description": "The death year of the speaker"
+                    }
+                  },
+                  "required": ["speaker", "quote"]
+                }
+              }
+            },
+            "required": ["quotes"]
+          }
+        },    
+        {
+          name: "send_email",
+          description: "It is a function that sends money to the other person.",
+          parameters: {
+            type: "object",
+            properties: {
+              to: {
+                type: "string",
+                description: "receiver"
+              }, content: {
+                type: "string",
+                description: "email content"
+              }, 
+            },
+            required: ["to", "content"]
+          }
+        },  
+        {
+          name: "send_money",
+          description: "It is a function that sends money to the other person.",
+          parameters: {
+            type: "object",
+            properties: {
+              to: {
+                type: "string",
+                description: "receiver"
+              }, amount: {
+                type: "string",
+                description: "send money amount"
+              }, 
+            },
+            required: ["to", "amount"]
+          }
+        },
+        {
+          name: "naver_search",
+          description: "Use selenium to search for keywords entered from Naver and derive search results.",
+          parameters: {
+            type: "object",
+            properties: {
+              keyword: {
+                type: "string",
+                description: "keyword"
+              }
+            },
+            required: ["keyword"]
+          }
+        },
+        {
+          name: "google_search",
+          description: "Use selenium to search for keywords entered from Naver and derive search results.",
+          parameters: {
+            type: "object",
+            properties: {
+              keyword: {
+                type: "string",
+                description: "keyword"
+              }
+            },
+            required: ["keyword"]
+          }
+        },
+        {
+          name: "send_email",
+          description: "send email",
+          parameters: {
+            type: "object",
+            properties: {
+              to: {
+                type: "string",
+                description: "email address receiver"
+              },
+              body: {
+                type: "string",
+                description: "email message"
+              }
+            },
+            required: ["subjects"]
+          }
+        }
+      ],
+      function_call: 'auto'
+    });
+    return response.data.choices[0].message;
+  } catch (error) {
+    console.error('Error calling ChatGPT API:', error);
+    return null;
+  }
+}
+
+async function callChatGPT2(prompt, arguments, content) {
+  const configuration = new Configuration({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+
+  try {
+    const openai = new OpenAIApi(configuration);
+    const response = await openai.createChatCompletion({
+      model: "gpt-3.5-turbo-0613",
+      messages: [{role: "user", content: prompt},
+      {role: "assistant", content: null, function_call: {name: "naver_search", arguments: arguments }},
+      {role: "function", name: "naver_search", content: content}
+    ],
+      functions: [
+            
+        {
+          name: "naver_search",
+          description: "Use selenium to search for keywords entered from Naver and derive search results.",
+          parameters: {
+            type: "object",
+            properties: {
+              keyword: {
+                type: "string",
+                description: "keyword"
+              }
+            },
+            required: ["keyword"]
+          }
+        },
+        {
+          name: "google_search",
+          description: "Use selenium to search for keywords entered from Naver and derive search results.",
+          parameters: {
+            type: "object",
+            properties: {
+              keyword: {
+                type: "string",
+                description: "keyword"
+              }
+            },
+            required: ["keyword"]
+          }
+        },
+        {
+          name: "send_email",
+          description: "send email",
+          parameters: {
+            type: "object",
+            properties: {
+              to: {
+                type: "string",
+                description: "email address receiver"
+              },
+              body: {
+                type: "string",
+                description: "email message"
+              }
+            },
+            required: ["subjects"]
+          }
+        }
+      ],
+      function_call: 'auto'
+    });
+    return response.data.choices[0].message;
+  } catch (error) {
+    console.error('Error calling ChatGPT API:', error);
+    return null;
+  }
+}
+
+
+console.log('Unlock Starting');
+main();
+
